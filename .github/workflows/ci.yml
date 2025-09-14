@@ -1,0 +1,226 @@
+name: CI Pipeline
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    # Run for PRs targeting any branch
+    branches: [ "**" ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    if: ${{ github.repository == 'stravos97/Sparta_Global_Academy_Springboot' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: read
+    
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: testpassword
+          MYSQL_DATABASE: testdb
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Cache Maven dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+
+    - name: Wait for MySQL (port check)
+      shell: bash
+      run: |
+        echo "Waiting for MySQL to be ready on 127.0.0.1:3306..."
+        for i in {1..90}; do
+          if (echo > /dev/tcp/127.0.0.1/3306) >/dev/null 2>&1; then
+            echo "MySQL is up!"; exit 0;
+          fi
+          sleep 1
+        done
+        echo "MySQL did not become ready in time" >&2
+        exit 1
+
+    - name: Run tests
+      run: mvn -B clean test
+      env:
+        SPRING_PROFILES_ACTIVE: ci
+        # Ensure Spring picks up local MySQL, overriding any defaults
+        SPRING_DATASOURCE_URL: jdbc:mysql://127.0.0.1:3306/testdb
+        SPRING_DATASOURCE_USERNAME: root
+        SPRING_DATASOURCE_PASSWORD: testpassword
+        SPRING_JPA_HIBERNATE_DDL_AUTO: none
+        # Also provide fallback vars used in application.properties interpolation
+        DB_URL: jdbc:mysql://127.0.0.1:3306/testdb
+        DB_USERNAME: root
+        DB_PASSWORD: testpassword
+
+    - name: Generate test report
+      uses: dorny/test-reporter@v1
+      if: success() || failure()
+      with:
+        name: Maven Tests
+        path: target/surefire-reports/*.xml
+        reporter: java-junit
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results
+        path: |
+          target/surefire-reports/
+          target/site/jacoco/
+
+    - name: Build application
+      run: mvn -B -DskipTests compile
+      env:
+        SPRING_PROFILES_ACTIVE: ci
+
+  deploy:
+    name: Deploy (private repo only)
+    if: ${{ github.repository == 'stravos97/Sparta_Global_Academy_Springboot' && github.ref == 'refs/heads/main' }}
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      DB_URL: ${{ secrets.DB_URL }}
+      DB_USERNAME: ${{ secrets.DB_USERNAME }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      SPRING_PROFILES_ACTIVE: prod
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Cache Maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Verify remote DB port accessible
+        shell: bash
+        run: |
+          echo "Checking DB host reachability: $DB_URL"
+          host=$(echo "$DB_URL" | sed -E 's#jdbc:mysql://([^/:]+).*#\1#')
+          port=$(echo "$DB_URL" | sed -E 's#.*:([0-9]+)/.*#\1#')
+          echo "Host: $host  Port: $port"
+          for i in {1..30}; do
+            if (echo > /dev/tcp/$host/$port) >/dev/null 2>&1; then
+              echo "Remote MySQL reachable"; exit 0; fi; sleep 2; done
+          echo "Remote MySQL not reachable" >&2; exit 1
+
+      - name: Build package (no tests)
+        run: mvn -B -DskipTests package
+        env:
+          SPRING_PROFILES_ACTIVE: prod
+
+      - name: Deploy
+        run: |
+          echo "Deploying artifact with SPRING_PROFILES_ACTIVE=$SPRING_PROFILES_ACTIVE"
+          ls -lh target/*.jar || true
+          echo "Add deployment commands (SSH/SCP, Docker, K8s, etc.)."
+
+  mirror_public:
+    name: Mirror to public (single-commit)
+    if: ${{ github.repository == 'stravos97/Sparta_Global_Academy_Springboot' && github.ref == 'refs/heads/main' }}
+    needs: [test, deploy]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare sanitized snapshot
+        run: |
+          set -e
+          mkdir /tmp/public_snapshot
+          git ls-files -z | tar --null -T - -c | tar -x -C /tmp/public_snapshot
+          cd /tmp/public_snapshot
+          git init
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A
+          git commit -m "Public snapshot of ${GITHUB_REPOSITORY}@${GITHUB_SHA}"
+
+      - name: Disable branch protection on public main (required for mirror)
+        env:
+          PUBLIC_REPO: stravos97/Sparta_Global_Academy_Springboot_Public
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+        run: |
+          set -e
+          if [ -n "$GH_TOKEN" ]; then
+            curl -sS -X DELETE -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              https://api.github.com/repos/$PUBLIC_REPO/branches/main/protection || true
+          else
+            echo "PUBLIC_REPO_TOKEN not set; skipping protection removal"; exit 1
+          fi
+
+      - name: Force push snapshot to public main
+        env:
+          PUBLIC_REPO: stravos97/Sparta_Global_Academy_Springboot_Public
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+        run: |
+          set -e
+          cd /tmp/public_snapshot
+          git branch -M main
+          git remote add public https://x-access-token:$GH_TOKEN@github.com/$PUBLIC_REPO.git
+          git push -f public main
+
+      - name: Re-enable strict branch protection (CI required, no force push)
+        env:
+          PUBLIC_REPO: stravos97/Sparta_Global_Academy_Springboot_Public
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+        run: |
+          set -e
+          printf '%s\n' \
+            '{' \
+            '  "required_status_checks": {' \
+            '    "strict": true,' \
+            '    "checks": [ { "context": "CI Pipeline" } ]' \
+            '  },' \
+            '  "enforce_admins": true,' \
+            '  "required_pull_request_reviews": null,' \
+            '  "restrictions": null,' \
+            '  "required_linear_history": true,' \
+            '  "allow_force_pushes": false,' \
+            '  "allow_deletions": false,' \
+            '  "block_creations": false,' \
+            '  "required_conversation_resolution": true' \
+            '}' > /tmp/protect.json
+          curl -sS -X PUT -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            https://api.github.com/repos/$PUBLIC_REPO/branches/main/protection \
+            --data-binary @/tmp/protect.json >/dev/null

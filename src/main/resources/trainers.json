@@ -1,0 +1,24 @@
+{
+  "trainers": [
+    {
+      "trainer_id": 1,
+      "full_name": "Phil Windridge"
+    },
+    {
+      "trainer_id": 2,
+      "full_name": "Catherine French"
+    },
+    {
+      "trainer_id": 3,
+      "full_name": "Nish Mandal"
+    },
+    {
+      "trainer_id": 4,
+      "full_name": "Abdul Shahrukh Khan"
+    },
+    {
+      "trainer_id": 5,
+      "full_name": "Paula Savaglia"
+    }
+  ]
+}

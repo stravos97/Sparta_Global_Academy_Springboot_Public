@@ -1,0 +1,25 @@
+services:
+  db_wait:
+    image: alpine@sha256:3be987e6cde1d07e873c012bf6cfe941e6e85d16ca5fc5b8bedc675451d2de67
+    container_name: sparta_db_wait
+    environment:
+      # Provide DB_URL via .env; no defaults here to avoid exposing host
+      DB_URL: ${DB_URL}
+    command: ["/bin/sh", "-lc", "apk add --no-cache netcat-openbsd >/dev/null; host=${DB_HOST:-$(echo \"$DB_URL\" | sed -E 's#jdbc:mysql://([^/:]+).*#\\1#')}; port=${DB_PORT:-$(echo \"$DB_URL\" | sed -E 's#.*://[^:]+:([0-9]+).*#\\1#')}; [ -z \"$port\" ] && port=3306; echo 'Waiting for remote DB...'; for i in $(seq 1 120); do nc -z \"$host\" \"$port\" && echo 'DB reachable' && exit 0; echo '...retry'; sleep 2; done; echo 'Timeout waiting for DB' >&2; exit 1"]
+
+  api:
+    image: ghcr.io/stravos97/sparta_global_academy_springboot_public:latest
+    container_name: sparta_api_remote
+    restart: unless-stopped
+    depends_on:
+      db_wait:
+        condition: service_completed_successfully
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      # Require DB_URL from .env; no inline defaults with host
+      DB_URL: ${DB_URL}
+      DB_USERNAME: ${APP_DB_USERNAME}
+      DB_PASSWORD: ${APP_DB_PASSWORD}
+      SPRINGDOC_SWAGGER_UI_PATH: "/"
+    ports:
+      - "8091:8091"

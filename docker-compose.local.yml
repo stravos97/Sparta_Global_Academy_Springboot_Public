@@ -1,0 +1,42 @@
+services:
+  mysql:
+    image: mysql@sha256:d2fdd0af28933c6f28475ff3b7defdbc0e0475d9f7346b5115b8d3abf8848a1d
+    restart: unless-stopped
+    environment:
+      # Provide these in .env (not committed)
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      # Local instance mirrors remote schema and credentials
+      MYSQL_DATABASE: sparta_academy
+      MYSQL_USER: ${APP_DB_USERNAME:-sparta_user}
+      MYSQL_PASSWORD: ${APP_DB_PASSWORD}
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # Initialize schema and data to mirror remote
+      - "./Wiki Documents/database_setup_fixed.sql:/docker-entrypoint-initdb.d/10_db_setup.sql:ro"
+      - "./docker/mysql/init/20_create_admin.sh:/docker-entrypoint-initdb.d/20_create_admin.sh:ro"
+
+  api:
+    image: ghcr.io/stravos97/sparta_global_academy_springboot_public:latest
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:mysql://mysql:3306/sparta_academy
+      DB_USERNAME: ${APP_DB_USERNAME}
+      DB_PASSWORD: ${APP_DB_PASSWORD}
+      SPRINGDOC_SWAGGER_UI_PATH: "/"
+    ports:
+      - "8091:8091"
+
+volumes:
+  mysql_data:
+    driver: local

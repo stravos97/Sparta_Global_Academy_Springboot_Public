@@ -1,0 +1,5 @@
+* id – unique identifier for the course (Integer/Long)
+* title – name of the course (String)
+* description – short explanation of the course (String)
+* EnrollDate – date the course begins (Date)
+* trainer_id – foreign key linking the course to its trainer (Integer/Long)

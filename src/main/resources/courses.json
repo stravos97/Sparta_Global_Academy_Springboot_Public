@@ -1,0 +1,39 @@
+{
+  "courses": [
+    {
+      "course_id": 1,
+      "title": "TECH 300",
+      "description": "C# Development Course",
+      "enroll_date": "2023-03-01",
+      "trainer_id": 1
+    },
+    {
+      "course_id": 2,
+      "title": "TECH 301",
+      "description": "Java Development Course",
+      "enroll_date": "2023-04-01",
+      "trainer_id": 2
+    },
+    {
+      "course_id": 3,
+      "title": "TECH 302",
+      "description": "C# Testing Course",
+      "enroll_date": "2023-05-01",
+      "trainer_id": 3
+    },
+    {
+      "course_id": 4,
+      "title": "TECH 303",
+      "description": "DevOps Engineering Course",
+      "enroll_date": "2023-06-01",
+      "trainer_id": 4
+    },
+    {
+      "course_id": 5,
+      "title": "DATA 304",
+      "description": "Data Science Course",
+      "enroll_date": "2023-07-01",
+      "trainer_id": 5
+    }
+  ]
+}

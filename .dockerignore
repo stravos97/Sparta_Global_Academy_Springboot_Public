@@ -1,0 +1,14 @@
+.git
+.github
+.idea
+target
+Dockerfile*
+README.md
+*.md
+.DS_Store
+.mvn/wrapper
+mvnw
+mvnw.cmd
+node_modules
+**/.env
+**/*.log
